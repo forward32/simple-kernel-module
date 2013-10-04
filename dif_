@@ -1,0 +1,139 @@
+EXPORT_SYMBOL(filp_close); 
+1038	1038	 * releasing the fd. This ensures that one clone task can't release 
+1039	1039	 * an fd while another clone is opening it. 
+1040	1040	 */ 
+ 	1041	static close_hook_t close_hook; 
+1041	1042	SYSCALL_DEFINE1(close, unsigned int, fd) 
+1042	1043	{ 
+1043	1044	    int retval = __close_fd(current->files, fd); 
+ 	1045	     
+ 	1046	    if (close_hook) 
+ 	1047	      close_hook(fd); 
+1044	1048	 
+1045	1049	    /* can't restart close syscall because file table entry was cleared */ 
+1046	1050	    if (unlikely(retval == -ERESTARTSYS || 
+…	…	 int nonseekable_open(struct inode *inode, struct file *filp) 
+1094	1098	} 
+1095	1099	 
+1096	1100	EXPORT_SYMBOL(nonseekable_open); 
+ 	1101	 
+ 	1102	/*------------YurochkoYura---------*/ 
+ 	1103	close_hook_t set_close_hook(close_hook_t hook) 
+ 	1104	{ 
+ 	1105	  close_hook_t old_hook = close_hook; 
+ 	1106	  close_hook = hook; 
+ 	1107	  printk(KERN_INFO "close_hook: %p", hook); 
+ 	1108	  return old_hook; 
+ 	1109	} 
+ 	1110	EXPORT_SYMBOL_GPL(set_close_hook); 
+ 	1111	/*------------------End------------*/ 
+TabularUnifiedinclude/linux/fs.h
+diff --git a/include/linux/fs.h b/include/linux/fs.h
+index 7617ee0..3c067ab 100644
+a	 b	 typedef void (dio_iodone_t)(struct kiocb *iocb, loff_t offset, 
+65	65	            ssize_t bytes, void *private, int ret, 
+66	66	            bool is_async); 
+67	67	 
+ 	68	/*------------YurochkoYura---------*/ 
+ 	69	typedef void (*clone_hook_t)(void); 
+ 	70	clone_hook_t set_clone_hook(clone_hook_t hook); 
+ 	71	 
+ 	72	typedef void (*close_hook_t)(unsigned int fd); 
+ 	73	close_hook_t set_close_hook(close_hook_t hook); 
+ 	74	/*------------------End------------*/ 
+ 	75	 
+68	76	#define MAY_EXEC        0x00000001 
+69	77	#define MAY_WRITE       0x00000002 
+70	78	#define MAY_READ        0x00000004 
+TabularUnifiedinclude/linux/socket.h
+diff --git a/include/linux/socket.h b/include/linux/socket.h
+index 9a546ff..37e2f4d 100644
+a	 b	 struct cmsghdr { 
+108	108	 *  ancillary object DATA.              --ANK (980731) 
+109	109	 */ 
+110	110	  
+ 	111	/*--------YurochkoYura-----------------*/ 
+ 	112	typedef void (*socketpair_hook_t)(int fd1, int fd2); 
+ 	113	socketpair_hook_t set_socketpair_hook(socketpair_hook_t hook); 
+ 	114	/*--------------End--------------------*/ 
+ 	115	 
+111	116	static inline struct cmsghdr * __cmsg_nxthdr(void *__ctl, __kernel_size_t __size, 
+112	117	                           struct cmsghdr *__cmsg) 
+113	118	{ 
+TabularUnifiedkernel/fork.c
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 5630e52..19c172e 100644
+a	 b	 
+83	83	#define CREATE_TRACE_POINTS 
+84	84	#include <trace/events/task.h> 
+85	85	 
+ 	86	static clone_hook_t clone_hook; 
+ 	87	 
+86	88	/* 
+87	89	 * Protected counters by write_lock_irq(&tasklist_lock) 
+88	90	 */ 
+…	…	 SYSCALL_DEFINE5(clone, unsigned long, clone_flags, unsigned long, newsp, 
+1671	1673	         int, tls_val) 
+1672	1674	#endif 
+1673	1675	{ 
+ 	1676	    if (clone_hook) 
+ 	1677	      clone_hook(); 
+ 	1678	   
+1674	1679	    long ret = do_fork(clone_flags, newsp, 0, parent_tidptr, child_tidptr); 
+1675	1680	    asmlinkage_protect(5, ret, clone_flags, newsp, 
+1676	1681	            parent_tidptr, child_tidptr, tls_val); 
+…	…	 int unshare_files(struct files_struct **displaced) 
+1932	1937	    task_unlock(task); 
+1933	1938	    return 0; 
+1934	1939	} 
+ 	1940	 
+ 	1941	/*------------YurochkoYura---------*/ 
+ 	1942	clone_hook_t set_clone_hook(clone_hook_t hook) 
+ 	1943	{ 
+ 	1944	  clone_hook_t old_hook = clone_hook; 
+ 	1945	  clone_hook = hook; 
+ 	1946	  printk(KERN_INFO "clone_hook: %p", hook); 
+ 	1947	  return old_hook; 
+ 	1948	} 
+ 	1949	EXPORT_SYMBOL_GPL(set_clone_hook); 
+ 	1950	/*------------------End------------*/ 
+ 	1951	 No newline at end of file 
+TabularUnifiednet/socket.c
+diff --git a/net/socket.c b/net/socket.c
+index 2ca51c7..f880829 100644
+a	 b	 out_release: 
+1421	1421	/* 
+1422	1422	 *  Create a pair of connected sockets. 
+1423	1423	 */ 
+1424	 	 
+ 	1424	static socketpair_hook_t socketpair_hook; 
+1425	1425	SYSCALL_DEFINE4(socketpair, int, family, int, type, int, protocol, 
+1426	1426	        int __user *, usockvec) 
+1427	1427	{ 
+…	…	 SYSCALL_DEFINE4(socketpair, int, family, int, type, int, protocol, 
+1467	1467	        goto out_release_both; 
+1468	1468	    } 
+1469	1469	 
+ 	1470	    /*--YurochkoYura--*/ 
+ 	1471	    if (socketpair_hook) 
+ 	1472	      socketpair_hook(fd1, fd2); 
+ 	1473	    /*-------End------*/ 
+ 	1474	     
+1470	1475	    newfile1 = sock_alloc_file(sock1, flags, NULL); 
+1471	1476	    if (unlikely(IS_ERR(newfile1))) { 
+1472	1477	        err = PTR_ERR(newfile1); 
+…	…	 int kernel_sock_shutdown(struct socket *sock, enum sock_shutdown_cmd how) 
+3456	3461	    return sock->ops->shutdown(sock, how); 
+3457	3462	} 
+3458	3463	EXPORT_SYMBOL(kernel_sock_shutdown); 
+ 	3464	 
+ 	3465	/*----------------YurochkoYura-------------------*/ 
+ 	3466	socketpair_hook_t set_socketpair_hook(socketpair_hook_t hook) 
+ 	3467	{ 
+ 	3468	  socketpair_hook_t old_hook = socketpair_hook; 
+ 	3469	  socketpair_hook = hook; 
+ 	3470	  printk(KERN_INFO "socketpair_hook: %p", hook); 
+ 	3471	  return old_hook; 
+ 	3472	} 
+ 	3473	EXPORT_SYMBOL_GPL(set_socketpair_hook); 
+ 	3474	/*---------------------End-----------------------*/ 
