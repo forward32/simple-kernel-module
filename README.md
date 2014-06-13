@@ -1,4 +1,6 @@
-sys_prog_cp
-===========
+This is my project for the course "System programming" in BMSTU.
 
-This is my project for the course "System programming"
+It is patch for linux kernel + loadable module for linux kernel.
+
+It intercepts system calls socket_pair, clone and close and provides
+information about process and on its descriptors.
